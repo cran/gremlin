@@ -7,8 +7,7 @@
 \usage{
 \method{summary}{gremlin}(object, ...)
 
-\method{print}{summary.gremlin}(x, digits = max(3, getOption("digits") -
-  3), ...)
+\method{print}{summary.gremlin}(x, digits = max(3, getOption("digits") - 3), ...)
 }
 \arguments{
 \item{object, x}{An object of \code{class} \sQuote{gremlin} or
@@ -24,17 +23,36 @@ A \code{list} of class \code{summary.gremlin} or a printed value
   to the screen with no return values.
   \describe{
     \item{logLik }{Model log-likelihood.}
-    \item{formulae }{Model fixed, random, and residual formulae.}
+    \item{formulae }{Function call and model fixed, random, and residual
+      formulae.}
+    \item{runtime }{A \code{numeric} of class \sQuote{difftime} containing
+      the length of time to run the model. See how this is handled in
+      \code{\link{update.gremlin}}.}
+    \item{lambda }{A \code{logical} indicating if the model was transformed
+      to the variance ratio, or \code{lambda} scale.}
+    \item{residQuants }{A named \code{vector} listing summary output for the
+      model residuals.}
     \item{varcompSummary }{Table of variance components and approximate
       standard errors (calculated from the inverse of the average information
-      matrix).}
-    \item{fxdSummary }{Table of fixed effects and standard errors (calculated
+      matrix). If a (co)variance component is fixed or at the boundary of
+      its parameter space then an \code{NA} is returned for the standard error
+      and a column with constraint types is added to the table. Alternative
+      methods (e.g., profile likelihood CIs) should be pursued for obtaining
+      uncertainties associated with fixed or boundary parameters.}
+    \item{varcompSampCor }{A \code{matrix} containing the sampling correlations
+      of the (co)variance components. Note this is on the underlying \code{nu}
+      scale that the model is fitting.}
+    \item{coefficients }{Table of fixed effects and standard errors (calculated
       from the corresponding diagonal elements of the inverse of the
-      coefficient matrix).}
+      coefficient matrix, transformed where necessary).}
   }
 }
 \description{
 Summarize and print results of linear mixed model fitted with gremlin.
+}
+\examples{
+grS <- gremlin(WWG11 ~ sex - 1, random = ~ sire, data = Mrode11)
+summary(grS)
 }
 \seealso{
 \code{\link{gremlin}}

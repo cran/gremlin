@@ -1,34 +1,6 @@
-#FIXME: Make decision about how to convert into factors (do this in function passing data frame to `mkModMats()`).
-#FIXME: previous to `mkModMats()` NEED to make all rand effects/intercepts factors in data!
-## Somehow do this in the data.frame associated with the model.frame in gf?
-
-## For example, leave variables 'as is' in fixed effects part
-## Convert all variables in certain parts of random effects formulas to factors
-### Apparently, lme4 does this automatically - see R-sig-ME thread 5 October 2016 
-#### Subject: manage person identifier variable
-#### XXX Note the caution about leading zeroes! (can `as.factor(as.character())` solve this?)
-## For example, year in both fxd and rfx (covariate as fixed effect, but factor as rfx)
-
-
-####	start function		########
-  # Strip out function so most of checking and cleaning done elsewhere
-  # see "./gremlin_parent/modelFittingInR" for general strategy of model.frame and model.matrix
-  # check for:
-    # multivariate/univariate
-    # sorting of data frame (multivariate or by interactions of random effects)   
-    # if levels of fixed/random effects in their interaction are all present (e.g., MCMCglmm does this)
-  #Have "units" added to data.frame in a previous function so it is already in "data="object
-  #Perhaps remove some of arguments below that are more checking, constructing data
-
-#TODO: `mkModMats()` that accepts lme4 model terms (e.g., "|" for rand fx)
-# Below is the MCMCglmm kind of way
-
-
-
-
 #XXX RANDOM EFFECTS MUST ALREADY BE FACTORS IN DATA!!!!
 ################################################################################
-#' @describeIn gremlinR Generates model matrices. 
+#' @describeIn gremlin Generates model matrices. 
 #' @export
 #' @importFrom stats na.pass model.response model.matrix lm reformulate na.omit
 mkModMats <- function(formula, random = NULL, rcov = ~ units,
@@ -49,10 +21,6 @@ mkModMats <- function(formula, random = NULL, rcov = ~ units,
   }
   if(!any("units" %in% all.vars(rcov))){
     stop("'units' must be specified in 'rcov' argument")
-  }
-  #FIXME: remove next stop when R structures can be specified
-  if(deparse(rcov) != "~units"){
-    stop("'rcov' can only specify a single R variance at this time")
   }
 
 
@@ -93,14 +61,13 @@ if(ncy > 1) stop("gremlin isn't old enough to play with multivariate models") #F
 	contrasts)
   ## if any subsetting is done, retrieve the "contrasts" attribute here.
   #TODO: Figure out what this means in original context of lm and if applies
-  #TODO: use lm to find singularities in X (see `MCMCglmm()`, ~line 608 of v2.21)
-### FIXME ##
-sing.rm<-lm(y~ as(X, "matrix")-1)
-sing.rm<-which(is.na(sing.rm$coef))
-if(length(sing.rm)){
-   warning("Some fixed effects are not estimable and have been removed/set to 0")
-   X<-X[,-sing.rm, drop = FALSE]
-}
+  ### use lm to find singularities in X (see `MCMCglmm()`, ~line 608 of v2.21)
+  sing.rm <- lm(y ~ as(X, "matrix") - 1)
+  sing.rm <- which(is.na(sing.rm$coef))
+  if(length(sing.rm) > 0){
+    warning(paste(length(sing.rm), "fixed effects are not estimable and have been removed (set to 0)"))
+    X <- X[, -sing.rm, drop = FALSE]
+  }
 ###END FIXME
   #TODO OR created reduced rank X (see "./Wellham2008REML..." slide 15&16)
   #TODO see how lme4 deals with rank-deficiencies:
@@ -119,7 +86,8 @@ if(length(sing.rm)){
   rf$formula <- reformulate(deparse(rForm[[-1]]), cl$formula[[2]], intercept = FALSE)
   #TODO: Need to add "units" to 'data'
   Rdata <- data
-  Rdata$units <- factor(paste("units", seq(nrow(Rdata)), sep = "."), levels = paste("units", seq(nrow(Rdata)), sep = ".")) 
+  Rdata$units <- factor(paste("units", seq(nrow(Rdata)), sep = "."),
+    levels = paste("units", seq(nrow(Rdata)), sep = ".")) 
   rf$data <- Rdata
   rf$drop.unused.levels <- TRUE
   #TODO: how handle missing values in random effects?
@@ -128,6 +96,13 @@ if(length(sing.rm)){
   Zr <- sparse.model.matrix(rt, rf,
 	transpose = FALSE,
 	row.names = TRUE) 
+# Placeholder for more complicated rcov: RENAME `Zr` to `Zinit` above
+#  emptCol <- which(diff(Zinit@p) == 0)  #TODO handle missing values
+#  Zr <- sparseMatrix(i = Zinit@i, p = Zinit@p[-emptCol], x = Zinit@x,
+#	dimnames = list(NULL, Zinit@Dimnames[[2L]][-emptCol]),
+#	symmetric = FALSE, index1 = FALSE)
+
+
 
 
 
@@ -152,6 +127,9 @@ if(length(sing.rm)){
     if(!is.null(ginverse)){
       if(!is.list(ginverse)){
         stop("ginverse must be an object of class 'list'")
+      }
+      if(any(duplicated(names(ginverse)))){
+        stop("duplicated names in ginverse. Must have only one unique name per ginverse entry")
       }
       for(i in 1:length(ginverse)){           
         if(is.null(rownames(ginverse[[i]]))){
@@ -215,7 +193,9 @@ if(length(sing.rm)){
       # retain levels in ginverse if one is associated, else drop unused levels
       if(!is.null(ginverse) && Gnames[g] %in% names(ginverse)){
         Ggdata <- data
-        levels(Ggdata[, Gnames[g]]) <- union(ginverse[[g]]@Dimnames[[1]], levels(Ggdata[, Gnames[g]])) 
+        # index in `ginverse` when not every random term has a ginverse
+        ginvIndex <- which(names(ginverse) == Gnames[g])
+        levels(Ggdata[, Gnames[g]]) <- union(ginverse[[ginvIndex]]@Dimnames[[1]], levels(Ggdata[, Gnames[g]])) 
         ggf$data <- Ggdata
         ggf$drop.unused.levels <- FALSE
         ggf <- eval.parent(ggf)	# G[g] model frame
@@ -224,10 +204,10 @@ if(length(sing.rm)){
 		transpose = FALSE,
 		drop.unused.levels = FALSE,	#TODO correct?
 		row.names = TRUE)
-        listGeninv[[g]] <- ginverse[[which(names(ginverse) == Gnames[g])]]
+        listGeninv[[g]] <- ginverse[[ginvIndex]]
         # calculate log(det(G)) from geninv; log(det(G)) = -1*log(det(G^-1))
-	#TODO: make check to see if ginverse[[g]] has attribute=logdet (from nadiv)
-        logDetG[[g]] <- -1 * determinant(ginverse[[which(names(ginverse) == Gnames[g])]], logarithm = TRUE)$modulus[1]
+	#TODO: make check to see if ginverse[[ginvIndex]] has attribute=logdet (from nadiv)
+        logDetG[[g]] <- -1 * determinant(ginverse[[ginvIndex]], logarithm = TRUE)$modulus[1]
       } else{
           Zg[[g]] <- sparse.model.matrix(ggf$formula, eval.parent(ggf),
 		transpose = FALSE,
@@ -262,7 +242,7 @@ if(any(nrowZi != ny)){
 	X = X, nb = ncol(X),
 	Zr = Zr,
 	Zg = Zg, nG = nG, listGeninv = listGeninv, logDetG = logDetG),
-	class = "gremlinModMats")
+	class = "grModMats")
 }
 
 
